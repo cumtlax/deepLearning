@@ -36,13 +36,16 @@ class CovidDataset(Dataset):
             if mode == "train":
                 indices = [i for i in range(len(csv_data)) if i % 5 != 0]
                 self.y = torch.tensor(csv_data[indices, -1])
+                data = torch.tensor(csv_data[indices, :-1])
             elif mode == "val":
                 indices = [i for i in range(len(csv_data)) if i % 5 == 0]
                 self.y = torch.tensor(csv_data[indices, -1])
+                data = torch.tensor(csv_data[indices, :-1])
             else:
                 indices = [i for i in range(len(csv_data))]
+                data = torch.tensor(csv_data[indices])
+
             # 转化为tensor类型，支持后续的运算
-            data = torch.tensor(csv_data[indices, :-1])
             self.data = (data - data.mean(dim=0, keepdim=True)) / data.std(dim=0, keepdim=True)
             self.mode = mode
 
@@ -61,11 +64,12 @@ test_file = "covid.test.csv"
 
 train_dataset = CovidDataset(train_file, "train")
 val_dataset = CovidDataset(train_file, "val")
-test_dataset = CovidDataset(train_file, "test")
+test_dataset = CovidDataset(test_file, "test")
 
 batch_size = 16
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
 
 class MyModel(nn.Module):
@@ -133,7 +137,21 @@ def train_val(model, train_loader, val_loader, device, epochs, optimizer, loss, 
     plt.legend(["train","val"])
     plt.show()
 
+def evaluate(save_path, test_loader, device, res_path):
+    model = torch.load(save_path).to(device)
+    res = []
+    with torch.no_grad():
+        for x in test_loader:
+            pred = model(x.to(device))
+            res.append(pred.cpu().item())
+    print(res)
 
+    with open(res_path, "w",newline="") as f:
+        csvWriter = csv.writer(f)
+        csvWriter.writerow(["id","tested_positive"])
+        for i, value in enumerate(res):
+            csvWriter.writerow([str(i), str(value)])
+    print("文件已经保存到"+res_path)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
@@ -141,11 +159,13 @@ config = {
     "lr": 0.001,
     "epochs": 20,
     "momentum": 0.9,  # 表示动量
-    "save_path": "model_save1/best_model.pth"
+    "save_path": "model_save1/best_model.pth",
+    "res_path":"pred.csv"
 }
 model = MyModel(inDim=93).to(device)
 loss = nn.MSELoss()
 optimizer = optim.SGD(model.parameters(),
                       lr=config["lr"],
                       momentum=config["momentum"])
-train_val(model, train_loader, val_loader, device, config["epochs"], optimizer, loss, config["save_path"])
+# train_val(model, train_loader, val_loader, device, config["epochs"], optimizer, loss, config["save_path"])
+evaluate(config["save_path"], test_loader, device, config["res_path"])
